@@ -1,0 +1,7 @@
+<mujoco model="hollow_cylinder_binary">
+  <worldbody>
+    <flexcomp name="hollow_cylinder_binary" type="gmsh" dim="3" file="volume.msh">
+    <edge equality="true"/>
+    </flexcomp>
+  </worldbody>
+</mujoco>
