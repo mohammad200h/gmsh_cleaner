@@ -188,20 +188,6 @@ class SurfaceExtractor(BaseExtractor):
     output_file_path = self.produce_path(output_file_path,is_volume = False)
     super().__init__(input_file_path, output_file_path)
 
-    self.create_obj(output_file_path)
-
-  def create_obj(self,output_file_path):
-    # https://pymesh.readthedocs.io/en/latest/basic.html
-    points = self.get_points()
-    cells = [("triangle" ,self.get_elements())]
-
-    output_file_path = self.produce_path(output_file_path,is_volume = False,is_obj=True)
-    print(f"create_obj::output_file_path::",output_file_path)
-    # Create a mesh
-
-    mesh = meshio.Mesh(points,cells)
-    # Save the mesh as OBJ
-    mesh.write(output_file_path, mesh)
 
   def get_elements(self):
     triangleElementType = gmsh.model.mesh.getElementType("triangle", 1)
