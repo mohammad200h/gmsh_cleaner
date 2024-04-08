@@ -304,6 +304,7 @@ class VolumeExtractor(BaseExtractor):
     self.write41_element_header_end()
 
   def process_disjoint_object(self,entities):
+    print("process_disjoint_object::called")
     pass
 
   def is_disjoint(self,entities):
