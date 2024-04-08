@@ -1,1 +1,1 @@
-python3 converter.py -i ./cube.msh -o ./cube_out.msh
+python3 converter.py -i ./joint_object.msh -o ./joint_object_out.msh

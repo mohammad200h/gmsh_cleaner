@@ -208,7 +208,7 @@ class BaseExtractor(object):
     return list(nodes_index),points
 
   def get_entity_elements(self,entity):
-    elem_data = gmsh.model.mesh.getElements(3,1)
+    elem_data = gmsh.model.mesh.getElements(entity[0],entity[1])
     elem_dim,element_index,elem_nodes_index = elem_data
     elem_nodes_index = np.array(elem_nodes_index).reshape(-1,elem_dim[0])
     return elem_dim[0],element_index,elem_nodes_index
@@ -269,12 +269,14 @@ class VolumeExtractor(BaseExtractor):
     for v_entity in v_entities:
       v_nodes_data = self.get_entity_nodes(v_entity)
       node_indexes,nodes = v_nodes_data
+      # print(f"{v_entity}::node_indexes::{node_indexes}")
 
       v_elements_data = self.get_entity_elements(v_entity)
       elem_dim,elem_index,elem_nodes_index = v_elements_data
+      # print(f"{v_entity}::elem_index::{elem_index}")
 
       combined_node_indexes += node_indexes
-      print(f"nodes::type::{type(nodes)}")
+      # print(f"nodes::type::{type(nodes)}")
       nodes_list.append(nodes)
       combined_elem_indexes += elem_index
       combined_elem_nodes_index.append(elem_nodes_index)
@@ -283,9 +285,9 @@ class VolumeExtractor(BaseExtractor):
     # _,nodes = self.get_entity_nodes(v_entity)
     elements = self.combine(combined_elem_nodes_index)
 
-    print(f"process_joint_object::nodes_list::{nodes_list}")
-    print(f"process_joint_object::nodes::{nodes}")
-    print(f"process_joint_object::elements::{elements}")
+    # print(f"process_joint_object::nodes_list::{nodes_list}")
+    # print(f"process_joint_object::nodes::{nodes}")
+    # print(f"process_joint_object::elements::{elements}")
 
     min_max = self.get_max_xyz(nodes)
     num_nodes = len(combined_node_indexes)
