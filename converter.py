@@ -11,13 +11,11 @@ import numpy as np
 
 
 class BaseExtractor(object):
-  def __init__(self, input_file_path, output_file_path):
+  def __init__(self, input_file_path):
     input_path = pathlib.Path(input_file_path)
     print("input_path:: ",input_path)
     gmsh.open(input_path.as_posix())
-    self.output_file_path = pathlib.Path(output_file_path)
 
-    self.process()
 
   @abstractmethod
   def process(self):
@@ -42,6 +40,10 @@ class BaseExtractor(object):
   def produce_path(self, path, is_volume = True,is_obj = False) -> str:
     path,filename = self.split_path_and_filename(path)
     filename_without_extension, there_is_an_extension = self.has_msh_extension(filename)
+
+    self.path_without_filename = path
+    self.output_filename_without_extension = filename_without_extension
+
     new_file_name = ""
     if there_is_an_extension:
       new_file_name = filename_without_extension
@@ -56,7 +58,9 @@ class BaseExtractor(object):
       else:
         new_file_name +="_surf.msh"
 
-    return  path + new_file_name
+    return  path,filename_without_extension,new_file_name
+
+
 
   def get_num_points(self,node_indexes):
     return len(node_indexes)
@@ -198,10 +202,8 @@ class BaseExtractor(object):
     return False
 
   def get_entity_nodes(self,entity):
-    if entity[1]>1:
-      nodes_index,points,info = gmsh.model.mesh.getNodes(entity[0],entity[1])
-    else:
-      nodes_index,points,info = gmsh.model.mesh.getNodes()
+
+    nodes_index,points,info = gmsh.model.mesh.getNodes()
 
 
     points = np.array(points).reshape(-1,3)
@@ -244,8 +246,18 @@ class ModelInformation:
 class VolumeExtractor(BaseExtractor):
   def __init__(self, input_file_path, output_file_path):
     #create a custom file name for volume
-    output_file_path = self.produce_path(output_file_path)
-    super().__init__(input_file_path, output_file_path)
+    output_file_path = output_file_path
+    super().__init__(input_file_path)
+
+    path_info = self.produce_path(pathlib.Path(output_file_path))
+    print(f"path_info::{path_info}")
+    self.path_without_filename = path_info[0]
+    self.output_filename_without_extension = path_info[1]
+    self.new_file_name = path_info[2]
+    self.output_file_path = pathlib.Path(self.path_without_filename + self.new_file_name)
+    print(f"output_file_path::{self.output_file_path}")
+
+    self.process()
 
   def process(self):
     entities = self.get_all_entities()
@@ -305,7 +317,32 @@ class VolumeExtractor(BaseExtractor):
 
   def process_disjoint_object(self,entities):
     print("process_disjoint_object::called")
-    pass
+    v_entities = self.get_volume_entities(entities)
+    for i,v_entity in enumerate(v_entities):
+      v_nodes_data = self.get_entity_nodes(v_entity)
+      node_indexes,nodes = v_nodes_data
+
+      v_elements_data = self.get_entity_elements(v_entity)
+      elem_dim,elem_index,elem_nodes_index = v_elements_data
+
+      #change_file_name
+      file_name = self.output_filename_without_extension + "_vol" + f"{i+1}.msh"
+      self.output_file_path = pathlib.Path(self.output_filename_without_extension + file_name)
+
+
+      min_max = self.get_max_xyz(nodes)
+      num_nodes = len(node_indexes)
+      num_elems = len(elem_nodes_index)
+
+      self.write41_mesh_format_41()
+      self.write41_entity_header(min_max)
+      self.write41_node_header(num_nodes)
+      self.write41_nodes_indices(num_nodes)
+      self.write41_nodes(nodes)
+      self.write41_nodes_header_end()
+      self.write41_element_header(num_elems)
+      self.write41_elements(elem_dim,elem_nodes_index)
+      self.write41_element_header_end()
 
   def is_disjoint(self,entities):
     v_entities = self.get_volume_entities(entities)
