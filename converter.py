@@ -420,7 +420,7 @@ class SurfaceExtractor(BaseExtractor):
 
       print(f"e_v:::{e_v} :: e_surfaces_boundry::::{e_surfaces}")
       for e_surface in e_surfaces:
-
+        e_surface = (e_surface[0],abs(e_surface[1]))
         elem_dim,elem_index,elem_nodes_index = self.get_entity_elements(e_surface)
         print(f"elem_dim::{elem_dim}::elem_index::{elem_index}::elem_nodes_index::{elem_nodes_index}")
         combined_elem_indexes += elem_index
