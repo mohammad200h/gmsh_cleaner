@@ -8,6 +8,7 @@ import meshio
 from collections import Counter
 from abc import ABC, abstractmethod
 import numpy as np
+import networkx as nx
 
 
 class BaseExtractor(object):
@@ -60,10 +61,9 @@ class BaseExtractor(object):
 
     return  path,filename_without_extension,new_file_name
 
-
-
   def get_num_points(self,node_indexes):
     return len(node_indexes)
+  
   def get_nodes(self):
     nodes_index,points,info = gmsh.model.mesh.getNodes()
     return nodes_index,points.reshape(-1,3)
@@ -83,8 +83,32 @@ class BaseExtractor(object):
 
     return (min_x, min_y, min_z, max_x, max_y, max_z)
 
+  def create_adjacency_matrix(self,volume_entities):
+    num_vol = len(volume_entities)
+    adjacency_matrix = np.zeros((num_vol,num_vol))
+    for i,v_e_one in enumerate(volume_entities):
+      for j,v_e_two in enumerate(volume_entities):
+        if i!=j:
+          adjacency_matrix[i,j] = 1 if self.is_there_a_shared_surface(v_e_one,v_e_two) else 0
+    return adjacency_matrix
+
+  def create_graph_from_adjacency_matrix(self,adjacency_matrix):
+    # Create a graph from the adjacency matrix
+    G = nx.from_numpy_array(adjacency_matrix)
+
+    return G
+
+  def get_objects_from_graph(self,G,volume_entities):
+    graphs = list(nx.connected_components(G))
+    objects = []
+    for g in graphs:
+      v_entities = [volume_entities[i] for i in g]
+      objects.append(v_entities)
+
+    return objects
+
+
   def write41_mesh_format_41(self):
-    print(f"write41_mesh_format_41::output_file_path::{self.output_file_path}")
     with self.output_file_path.open('w') as f:
       f.write('$MeshFormat\n')
       f.write('4.1 0 8\n')
@@ -132,8 +156,6 @@ class BaseExtractor(object):
   def write41_element_header(self):
     pass
 
-
-
   def get_maximum_occurrence(self,surfaces_index):
     # https://www.geeksforgeeks.org/python-count-occurrences-element-list/
     d = Counter(surfaces_index)
@@ -180,15 +202,15 @@ class BaseExtractor(object):
 
     return e_volume
 
-  def get_boundary_entities_for_volumes(self,entities):
-    e_volumes = self.get_volume_entities(entities)
+  def get_boundary_entities_for_volumes(self,volume_entities):
     e_surface = []
 
-    for e_v in e_volumes:
+    for e_v in volume_entities:
       e_surface += gmsh.model.getBoundary([e_v])
     return e_surface
 
-  def is_there_a_shared_surface(self,entities):
+  def is_there_a_shared_surface(self,e1,e2):
+    entities = [e1,e2]
     e_surface = self.get_boundary_entities_for_volumes(entities)
     surface = []
     for e in e_surface:
@@ -196,7 +218,7 @@ class BaseExtractor(object):
       surface.append(abs(e[1]))
 
     occ = self.get_maximum_occurrence(surface)
-    print(f"is_there_a_shared_surface::occ::{occ}")
+   
     if occ>1:
        return True
 
@@ -230,7 +252,6 @@ class ModelInformation:
     # TODO : print information about model
     pass
 
-
 class VolumeExtractor(BaseExtractor):
   def __init__(self, input_file_path, output_file_path):
     super().__init__(input_file_path)
@@ -244,21 +265,35 @@ class VolumeExtractor(BaseExtractor):
     else:
       self.output_file_path = pathlib.Path(self.path_without_filename + self.new_file_name)
 
-
     self.process()
 
   def process(self):
     entities = self.get_all_entities()
-
-    if self.is_disjoint(entities):
-      self.process_disjoint_object(entities)
-    else:
-      self.process_joint_object(entities)
-
-  def process_joint_object(self,entities):
-    # volume entities
     v_entities = self.get_volume_entities(entities)
-    print(f"process_joint_object::v_entities::{v_entities}")
+
+    # creating graph of connected volumes
+    adjacency_matrix = self.create_adjacency_matrix(v_entities)
+    G = self.create_graph_from_adjacency_matrix(adjacency_matrix)
+
+    objects = self.get_objects_from_graph(G,v_entities)
+
+    for i,v_entities in enumerate(objects):
+      if len(objects)>0:
+        file_name = self.output_filename_without_extension + "_vol" + f"{i+1}.msh"
+      else:
+        file_name = self.output_filename_without_extension + "_vol.msh"
+      
+      if self.output_filename_without_extension == "/":
+        self.output_file_path = pathlib.Path(file_name)
+      else:
+        self.output_file_path = pathlib.Path(self.output_filename_without_extension 
+                                             + file_name
+        )
+      
+      self.process_object(v_entities)
+
+  def process_object(self,v_entities):
+    
     # creating a single volume entity
     combined_elem_indexes = []
     combined_elem_nodes_index = []
@@ -289,46 +324,6 @@ class VolumeExtractor(BaseExtractor):
     self.write41_elements(elem_dim,elements)
     self.write41_element_header_end()
 
-  def process_disjoint_object(self,entities):
-    print("process_disjoint_object::called")
-    v_entities = self.get_volume_entities(entities)
-    for i,v_entity in enumerate(v_entities):
-      v_nodes_data = self.get_nodes()
-      node_indexes,nodes = v_nodes_data
-
-      v_elements_data = self.get_entity_elements(v_entity)
-      elem_dim,elem_index,elem_nodes_index = v_elements_data
-
-      #change_file_name
-      file_name = self.output_filename_without_extension + "_vol" + f"{i+1}.msh"
-      if self.output_filename_without_extension == "/":
-        self.output_file_path = pathlib.Path(file_name)
-      else:
-        self.output_file_path = pathlib.Path(self.output_filename_without_extension + file_name)
-
-
-      min_max = self.get_max_xyz(nodes)
-      num_nodes = len(node_indexes)
-      num_elems = len(elem_nodes_index)
-
-      self.write41_mesh_format_41()
-      self.write41_entity_header(min_max)
-      self.write41_node_header(num_nodes)
-      self.write41_nodes_indices(num_nodes)
-      self.write41_nodes(nodes)
-      self.write41_nodes_header_end()
-      self.write41_element_header(num_elems)
-      self.write41_elements(elem_dim,elem_nodes_index)
-      self.write41_element_header_end()
-
-
-  def is_disjoint(self,entities):
-    v_entities = self.get_volume_entities(entities)
-    if len(v_entities)>1 and not self.is_there_a_shared_surface(entities):
-      return True
-
-    return False
-
   def write41_entity_header(self,min_max):
     with self.output_file_path.open('a') as f:
       f.write('$Entities\n')
@@ -351,7 +346,6 @@ class VolumeExtractor(BaseExtractor):
       f.write(f'1 {num_elems} 1 {num_elems}\n')
       f.write(f'3 0 4 {num_elems}\n')
 
-
 class SurfaceExtractor(BaseExtractor):
   def __init__(self, input_file_path, output_file_path):
     super().__init__(input_file_path)
@@ -369,24 +363,40 @@ class SurfaceExtractor(BaseExtractor):
 
   def process(self):
     entities = self.get_all_entities()
+    v_entities = self.get_volume_entities(entities)
 
-    if self.is_disjoint(entities):
-      self.process_disjoint_object(entities)
-    else:
-      self.process_joint_object(entities)
+    # creating graph of connected volumes
+    adjacency_matrix = self.create_adjacency_matrix(v_entities)
+    G = self.create_graph_from_adjacency_matrix(adjacency_matrix)
 
-  def process_joint_object(self,entities):
+    objects = self.get_objects_from_graph(G,v_entities)
+
+    for i,v_entities in enumerate(objects):
+      if len(objects)>0:
+        file_name = self.output_filename_without_extension + "_surf" + f"{i+1}.msh"
+      else:
+        file_name = self.output_filename_without_extension + "_surf.msh"
+      
+      if self.output_filename_without_extension == "/":
+        self.output_file_path = pathlib.Path(file_name)
+      else:
+        self.output_file_path = pathlib.Path(self.output_filename_without_extension 
+                                             + file_name
+        )
+      
+      self.process_object(v_entities)
+
+  def process_object(self,volume_entities):
     # surfaces around the volume entities
     combined_elem_indexes = []
     combined_elem_nodes_index = []
-    e_surfaces = self.get_boundary_entities_for_volumes(entities)
-    print(f"get_surface_entities::{self.get_surface_entities(entities)}")
 
-    print(f"e_surfaces_boundry::::{e_surfaces}")
+    e_surfaces = gmsh.model.getBoundary(volume_entities)
+    e_surfaces =  [(e[0],abs(e[1])) for e in e_surfaces]
+
     for e_surface in e_surfaces:
 
       elem_dim,elem_index,elem_nodes_index = self.get_entity_elements(e_surface)
-      print(f"elem_dim::{elem_dim}::elem_index::{elem_index}::elem_nodes_index::{elem_nodes_index}")
       combined_elem_indexes += elem_index
       combined_elem_nodes_index.append(elem_nodes_index)
 
@@ -407,63 +417,6 @@ class SurfaceExtractor(BaseExtractor):
     self.write41_element_header(num_elems)
     self.write41_elements(elem_dim,elements)
     self.write41_element_header_end()
-
-  def process_disjoint_object(self,entities):
-    print(f"process_disjoint_object::called")
-    #volume entities
-    e_volumes = self.get_volume_entities(entities)
-    for i,e_v in enumerate(e_volumes):
-      # surfaces around the volume entities
-      combined_elem_indexes = []
-      combined_elem_nodes_index = []
-      e_surfaces = gmsh.model.getBoundary([e_v])
-
-      print(f"e_v:::{e_v} :: e_surfaces_boundry::::{e_surfaces}")
-      for e_surface in e_surfaces:
-        e_surface = (e_surface[0],abs(e_surface[1]))
-        elem_dim,elem_index,elem_nodes_index = self.get_entity_elements(e_surface)
-        print(f"elem_dim::{elem_dim}::elem_index::{elem_index}::elem_nodes_index::{elem_nodes_index}")
-        combined_elem_indexes += elem_index
-        combined_elem_nodes_index.append(elem_nodes_index)
-
-      #change_file_name
-      file_name = self.output_filename_without_extension + "_surf" + f"{i+1}.msh"
-      if self.output_filename_without_extension == "/":
-        self.output_file_path = pathlib.Path(file_name)
-      else:
-        self.output_file_path = pathlib.Path(self.output_filename_without_extension + file_name)
-
-      v_nodes_data = self.get_nodes()
-      node_indexes,nodes = v_nodes_data
-      elements = self.combine(combined_elem_nodes_index)
-
-      min_max = self.get_max_xyz(nodes)
-      num_nodes = len(node_indexes)
-      num_elems = len(elements)
-
-      self.write41_mesh_format_41()
-      self.write41_entity_header(min_max)
-      self.write41_node_header(num_nodes)
-      self.write41_nodes_indices(num_nodes)
-      self.write41_nodes(nodes)
-      self.write41_nodes_header_end()
-      self.write41_element_header(num_elems)
-      self.write41_elements(elem_dim,elements)
-      self.write41_element_header_end()
-
-
-      nodes = None
-      elements = None
-
-
-
-
-  def is_disjoint(self,entities):
-    v_entities = self.get_volume_entities(entities)
-    if len(v_entities)>1 and not self.is_there_a_shared_surface(entities):
-      return True
-
-    return False
 
   def write41_entity_header(self,min_max):
     with open(self.output_file_path, 'a') as f:
@@ -499,7 +452,6 @@ class SurfaceExtractor(BaseExtractor):
       f.write(f'2 0 2 {num_elems}\n')
 
 
-
 def main():
 
   parser = argparse.ArgumentParser(description=__doc__)
@@ -507,10 +459,10 @@ def main():
   parser.add_argument("-o", "--output", type=str, help="Path to the output file.")
   args = parser.parse_args()
 
-  # produce a file only containing volume
-  # VolumeExtractor(args.input, args.output)
+  # produce files only containing volume
+  VolumeExtractor(args.input, args.output)
 
-  # produce a file only containing surface
+  # produce a files only containing surface
   SurfaceExtractor(args.input, args.output)
 
 if __name__ == '__main__':

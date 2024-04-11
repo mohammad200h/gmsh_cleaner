@@ -1,1 +1,1 @@
-python3 converter.py -i ./disjoint_object.msh -o ./disjoint_object_out.msh
+python3 converter.py -i ./sophisticated.msh -o ./sophisticated_out.msh
