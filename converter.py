@@ -11,6 +11,27 @@ import numpy as np
 import networkx as nx
 
 
+from msh2obj import msh_to_obj
+
+
+class Elements:
+  def __init__(self,elementTypes,elementTags,elementNodeTags):
+    self.types = elementTypes
+    self.tags = elementTags 
+    self.nodeTags = elementNodeTags 
+
+class Nodes:
+  def __init__(self,indexes,nodes):
+    self.indexes = indexes 
+    self.nodes = nodes
+
+class Obj:
+  def __init__(self,name,entities,elements,nodes):
+    self.name = name
+    self.elements = elements 
+    self.nodes = nodes 
+    self.entities = entities
+
 class BaseExtractor(object):
   def __init__(self, input_file_path):
     input_path = pathlib.Path(input_file_path)
@@ -224,15 +245,34 @@ class BaseExtractor(object):
 
     return False
 
-  def get_entity_nodes(self,entity):
-    #TODO rewrite this using elements nodes_indexes
-    #given elements nodes_indexes for entity return nodes
-    pass
+  
+  def get_nodes_given_elements_indexes(self,nodes_idx):
+    v_nodes_data = self.get_nodes()
+    node_indexes,nodes = v_nodes_data
+
+    remapped_nodes = nodes[nodes_idx]
+
+    return remapped_nodes
+  
+  def remap_elements_and_nodes(self,elements,nodes):
+    used_nodes = np.unique(elements.flatten())
+    mask = np.isin(np.arange(used_nodes.max() + 1), used_nodes)
+
+    # Create a mapping from old node indices to new node indices
+    node_map = {old_index: new_index + 1 for new_index, old_index in enumerate(np.where(mask)[0])}
+    # Apply the mapping to elements
+    remapped_elements = np.vectorize(node_map.get)(elements)
+
+
+    filtered_nodes = nodes[used_nodes]
+
+    return filtered_nodes,remapped_elements
+
+    
 
   def get_entity_elements(self,entity):
     elem_data = gmsh.model.mesh.getElements(entity[0],entity[1])
     elem_dim,element_index,elem_nodes_index = elem_data
-    dim = elem_dim[0]
     if elem_dim[0]==2:
       dim = elem_dim[0]+1
     elem_nodes_index = np.array(elem_nodes_index).reshape(-1,dim)
@@ -265,7 +305,6 @@ class VolumeExtractor(BaseExtractor):
     else:
       self.output_file_path = pathlib.Path(self.path_without_filename + self.new_file_name)
 
-    self.process()
 
   def process(self):
     entities = self.get_all_entities()
@@ -275,10 +314,11 @@ class VolumeExtractor(BaseExtractor):
     adjacency_matrix = self.create_adjacency_matrix(v_entities)
     G = self.create_graph_from_adjacency_matrix(adjacency_matrix)
 
-    objects = self.get_objects_from_graph(G,v_entities)
+    objects_per_graph = self.get_objects_from_graph(G,v_entities)
 
-    for i,v_entities in enumerate(objects):
-      if len(objects)>0:
+    objects = []
+    for i,v_entities in enumerate(objects_per_graph):
+      if len(objects_per_graph)>0:
         file_name = self.output_filename_without_extension + "_vol" + f"{i+1}.msh"
       else:
         file_name = self.output_filename_without_extension + "_vol.msh"
@@ -290,61 +330,47 @@ class VolumeExtractor(BaseExtractor):
                                              + file_name
         )
       
-      self.process_object(v_entities)
+      obj = self.process_object(v_entities,file_name)
+      objects.append(obj)
 
-  def process_object(self,v_entities):
+    for obj in objects:
+      self.create_model(obj)
+
+  def process_object(self,v_entities,file_name):
     
     # creating a single volume entity
-    combined_elem_indexes = []
-    combined_elem_nodes_index = []
-    elem_dim = None
+    elementTypes = {}
+    elementTags = {}
+    elementNodeTags = {}
+
     for v_entity in v_entities:
-      v_elements_data = self.get_entity_elements(v_entity)
-      elem_dim,elem_index,elem_nodes_index = v_elements_data
+      elementTypes[v_entity],elementTags[v_entity],elementNodeTags[v_entity]=gmsh.model.mesh.getElements(v_entity[0],v_entity[1])
 
-
-      combined_elem_indexes += elem_index
-      combined_elem_nodes_index.append(elem_nodes_index)
 
     v_nodes_data = self.get_nodes()
     node_indexes,nodes = v_nodes_data
-    elements = self.combine(combined_elem_nodes_index)
+    
+    obj = Obj(
+              file_name,
+              v_entities,
+              Elements(elementTypes,elementTags,elementNodeTags),
+              Nodes(node_indexes,nodes.flatten().tolist())
+          )
+    return obj
 
-    min_max = self.get_max_xyz(nodes)
-    num_nodes = len(node_indexes)
-    num_elems = len(elements)
+  def create_model(self,obj):
+    gmsh.model.add(obj.name)
+    gmsh.model.addDiscreteEntity(3,1)
+    gmsh.model.mesh.addNodes(3,1,obj.nodes.indexes,obj.nodes.nodes)
+    
+    for e in obj.entities:
+      gmsh.model.mesh.addElements(3, 1, obj.elements.types[e], obj.elements.tags[e],
+                                  obj.elements.nodeTags[e])
 
-    self.write41_mesh_format_41()
-    self.write41_entity_header(min_max)
-    self.write41_node_header(num_nodes)
-    self.write41_nodes_indices(num_nodes)
-    self.write41_nodes(nodes)
-    self.write41_nodes_header_end()
-    self.write41_element_header(num_elems)
-    self.write41_elements(elem_dim,elements)
-    self.write41_element_header_end()
-
-  def write41_entity_header(self,min_max):
-    with self.output_file_path.open('a') as f:
-      f.write('$Entities\n')
-      f.write('0 0 0 1\n')
-      f.write('0 ' + str(min_max[0]) + ' ' + str(min_max[1]) + ' ' +
-              str(min_max[2]) + ' ' + str(min_max[3]) + ' ' + str(min_max[4]) +
-              ' ' + str(min_max[5]) + ' 0 0 \n')
-      f.write('$EndEntities\n')
-
-  def write41_node_header(self,num_nodes):
-    with self.output_file_path.open('a') as f:
-      f.write('$Nodes\n')
-      f.write(f'1 {num_nodes} 1 {num_nodes}\n')
-      f.write(f'3 0 0 {num_nodes}\n')
-
-  def write41_element_header(self,num_elems):
-
-    with self.output_file_path.open('a') as f:
-      f.write('$Elements\n')
-      f.write(f'1 {num_elems} 1 {num_elems}\n')
-      f.write(f'3 0 4 {num_elems}\n')
+    gmsh.model.mesh.reclassifyNodes()
+    gmsh.option.setNumber("Mesh.MshFileVersion",4.1)
+    # gmsh.model.mesh.generate(3)
+    gmsh.write(obj.name)
 
 class SurfaceExtractor(BaseExtractor):
   def __init__(self, input_file_path, output_file_path):
@@ -359,8 +385,6 @@ class SurfaceExtractor(BaseExtractor):
     else:
       self.output_file_path = pathlib.Path(self.path_without_filename + self.new_file_name)
 
-    self.process()
-
   def process(self):
     entities = self.get_all_entities()
     v_entities = self.get_volume_entities(entities)
@@ -369,10 +393,14 @@ class SurfaceExtractor(BaseExtractor):
     adjacency_matrix = self.create_adjacency_matrix(v_entities)
     G = self.create_graph_from_adjacency_matrix(adjacency_matrix)
 
-    objects = self.get_objects_from_graph(G,v_entities)
+    objects_per_graph = self.get_objects_from_graph(G,v_entities)
 
-    for i,v_entities in enumerate(objects):
-      if len(objects)>0:
+
+    paths = []
+    objects = []
+    for i,v_entities in enumerate(objects_per_graph):
+      file_name = ""
+      if len(objects_per_graph)>0:
         file_name = self.output_filename_without_extension + "_surf" + f"{i+1}.msh"
       else:
         file_name = self.output_filename_without_extension + "_surf.msh"
@@ -383,73 +411,54 @@ class SurfaceExtractor(BaseExtractor):
         self.output_file_path = pathlib.Path(self.output_filename_without_extension 
                                              + file_name
         )
-      
-      self.process_object(v_entities)
+      paths.append(self.output_file_path)
+      obj = self.process_object(v_entities,file_name)
+      objects.append(obj)
 
-  def process_object(self,volume_entities):
+    for obj in objects:
+      self.create_model(obj)
+
+    return paths
+
+  def process_object(self,volume_entities,file_name):
     # surfaces around the volume entities
-    combined_elem_indexes = []
-    combined_elem_nodes_index = []
-
     e_surfaces = gmsh.model.getBoundary(volume_entities)
     e_surfaces =  [(e[0],abs(e[1])) for e in e_surfaces]
 
+    elementTypes = {}
+    elementTags = {}
+    elementNodeTags = {}
+
+
     for e_surface in e_surfaces:
-
-      elem_dim,elem_index,elem_nodes_index = self.get_entity_elements(e_surface)
-      combined_elem_indexes += elem_index
-      combined_elem_nodes_index.append(elem_nodes_index)
-
+      elementTypes[e_surface],elementTags[e_surface],elementNodeTags[e_surface]=gmsh.model.mesh.getElements(e_surface[0],e_surface[1])
+      
     v_nodes_data = self.get_nodes()
     node_indexes,nodes = v_nodes_data
-    elements = self.combine(combined_elem_nodes_index)
+ 
 
-    min_max = self.get_max_xyz(nodes)
-    num_nodes = len(node_indexes)
-    num_elems = len(elements)
 
-    self.write41_mesh_format_41()
-    self.write41_entity_header(min_max)
-    self.write41_node_header(num_nodes)
-    self.write41_nodes_indices(num_nodes)
-    self.write41_nodes(nodes)
-    self.write41_nodes_header_end()
-    self.write41_element_header(num_elems)
-    self.write41_elements(elem_dim,elements)
-    self.write41_element_header_end()
+    obj = Obj(
+              file_name,
+              e_surfaces,
+              Elements(elementTypes,elementTags,elementNodeTags),
+              Nodes(node_indexes,nodes.flatten().tolist())
+          )
+    return obj
 
-  def write41_entity_header(self,min_max):
-    with open(self.output_file_path, 'a') as f:
-      f.write('$Entities\n')
-      f.write('0 0 1 0\n')
-      f.write(
-          '0 '
-          + str(min_max[0])
-          + ' '
-          + str(min_max[1])
-          + ' '
-          + str(min_max[2])
-          + ' '
-          + str(min_max[3])
-          + ' '
-          + str(min_max[4])
-          + ' '
-          + str(min_max[5])
-          + ' 0 0 \n'
-      )
-      f.write('$EndEntities\n')
+  def create_model(self,obj):
+    gmsh.model.add(obj.name)
+    gmsh.model.addDiscreteEntity(2,1)
+    gmsh.model.mesh.addNodes(2,1,obj.nodes.indexes,obj.nodes.nodes)
+    
+    for e in obj.entities:
+      gmsh.model.mesh.addElements(2, 1, obj.elements.types[e], obj.elements.tags[e],
+                                  obj.elements.nodeTags[e])
 
-  def write41_node_header(self,num_nodes):
-    with self.output_file_path.open('a') as f:
-      f.write('$Nodes\n')
-      f.write(f'1 {num_nodes} 1 {num_nodes}\n')
-      f.write(f'2 0 0 {num_nodes}\n')
-
-  def write41_element_header(self,num_elems):
-    with self.output_file_path.open('a') as f:
-      f.write('$Elements\n')
-      f.write(f'1 {num_elems} 1 {num_elems}\n')
-      f.write(f'2 0 2 {num_elems}\n')
+    gmsh.model.mesh.reclassifyNodes()
+    gmsh.option.setNumber("Mesh.MshFileVersion",4.1)
+    # gmsh.model.mesh.generate(3)
+    gmsh.write(obj.name)
 
 
 def main():
@@ -460,10 +469,12 @@ def main():
   args = parser.parse_args()
 
   # produce files only containing volume
-  VolumeExtractor(args.input, args.output)
+  VolumeExtractor(args.input, args.output).process()
 
   # produce a files only containing surface
-  SurfaceExtractor(args.input, args.output)
+  paths = SurfaceExtractor(args.input, args.output).process()
+
+  # print(f"paths::{paths}")
 
 if __name__ == '__main__':
   # Initialize Gmsh
