@@ -9,10 +9,7 @@ from collections import Counter
 from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
-
-
-from msh2obj import msh_to_obj
-
+import io
 
 class Elements:
   def __init__(self,elementTypes,elementTags,elementNodeTags):
@@ -128,55 +125,6 @@ class BaseExtractor(object):
 
     return objects
 
-
-  def write41_mesh_format_41(self):
-    with self.output_file_path.open('w') as f:
-      f.write('$MeshFormat\n')
-      f.write('4.1 0 8\n')
-      f.write('$EndMeshFormat\n')
-
-  def write41_nodes_header_end(self):
-    with self.output_file_path.open('a') as f:
-      f.write('$EndNodes\n')
-
-  def write41_nodes_indices(self,num_nodes):
-    with self.output_file_path.open('a') as f:
-      for i in range(num_nodes):
-        f.write(f"{i+1}\n")
-
-  def write41_nodes(self,nodes):
-
-    with self.output_file_path.open('a') as f:
-      for node in nodes:
-        f.write(f"{node[0]} {node[1]} {node[2]}\n")
-
-  def write41_element_header_end(self):
-    with self.output_file_path.open('a') as f:
-      f.write('$EndElements\n')
-
-  def write41_elements(self,elem_dim,elem_nodes_index):
-     with self.output_file_path.open('a') as f:
-      index = 1
-      for element in elem_nodes_index:
-        elem_str = ""
-        for i in range(elem_dim):
-          elem_str += " "+str(element[i])
-        elem_str = str(index) + elem_str + "\n"
-        f.write(elem_str)
-        index += 1
-
-  @abstractmethod
-  def write41_entity_header(self):
-    pass
-
-  @abstractmethod
-  def write41_node_header(self):
-    pass
-
-  @abstractmethod
-  def write41_element_header(self):
-    pass
-
   def get_maximum_occurrence(self,surfaces_index):
     # https://www.geeksforgeeks.org/python-count-occurrences-element-list/
     d = Counter(surfaces_index)
@@ -245,7 +193,6 @@ class BaseExtractor(object):
 
     return False
 
-  
   def get_nodes_given_elements_indexes(self,nodes_idx):
     v_nodes_data = self.get_nodes()
     node_indexes,nodes = v_nodes_data
@@ -254,22 +201,27 @@ class BaseExtractor(object):
 
     return remapped_nodes
   
-  def remap_elements_and_nodes(self,elements,nodes):
-    used_nodes = np.unique(elements.flatten())
-    mask = np.isin(np.arange(used_nodes.max() + 1), used_nodes)
+  def get_normals(self,elements,nodes):
+    normals = []
+    for elem in elements:
+      # print(f"elem[0]::{elem[0]-1}")
+      n_0 = nodes[elem[0]-1]
+      n_1 = nodes[elem[1]-1]
+      n_2 = nodes[elem[2]-1]
+      # print(f"n_0::{n_0}")
+      # print(f"n_1::{n_1}")
+      # print(f"n_2::{n_2}")
 
-    # Create a mapping from old node indices to new node indices
-    node_map = {old_index: new_index + 1 for new_index, old_index in enumerate(np.where(mask)[0])}
-    # Apply the mapping to elements
-    remapped_elements = np.vectorize(node_map.get)(elements)
+      edge_one = n_1 - n_0
+      edge_two = n_2 - n_0
 
+      normal = np.cross(edge_one, edge_two)
 
-    filtered_nodes = nodes[used_nodes]
+      normal /= np.linalg.norm(normal)
+      normals.append(normal)
 
-    return filtered_nodes,remapped_elements
-
+    return normals
     
-
   def get_entity_elements(self,entity):
     elem_data = gmsh.model.mesh.getElements(entity[0],entity[1])
     elem_dim,element_index,elem_nodes_index = elem_data
@@ -408,8 +360,10 @@ class SurfaceExtractor(BaseExtractor):
       if self.output_filename_without_extension == "/":
         self.output_file_path = pathlib.Path(file_name)
       else:
-        self.output_file_path = pathlib.Path(self.output_filename_without_extension 
-                                             + file_name
+        print(f"self.output_filename_without_extension:: {self.output_filename_without_extension}")
+        print(f"file_name:: {file_name}")
+        self.output_file_path = pathlib.Path(
+                                file_name
         )
       paths.append(self.output_file_path)
       obj = self.process_object(v_entities,file_name)
@@ -447,6 +401,7 @@ class SurfaceExtractor(BaseExtractor):
     return obj
 
   def create_model(self,obj):
+    # generating GMSH
     gmsh.model.add(obj.name)
     gmsh.model.addDiscreteEntity(2,1)
     gmsh.model.mesh.addNodes(2,1,obj.nodes.indexes,obj.nodes.nodes)
@@ -457,10 +412,43 @@ class SurfaceExtractor(BaseExtractor):
 
     gmsh.model.mesh.reclassifyNodes()
     gmsh.option.setNumber("Mesh.MshFileVersion",4.1)
-    # gmsh.model.mesh.generate(3)
+    gmsh.model.mesh.generate(3)
     gmsh.write(obj.name)
 
+    # generate OBJ
+    node_indexes,nodes = self.get_nodes()
+    elem_dim,element_index,elem_nodes_index = gmsh.model.mesh.getElements()
+    elements = np.array(elem_nodes_index,dtype=np.int32).reshape(-1,3)
 
+    # print(f"num nodes::{nodes.shape}")
+    # print(f"num elements::{elements.shape}")
+
+
+    normals = np.array(self.get_normals(elements,nodes)).reshape(-1,3)
+
+    # print(f"normals::{normals}")
+
+    out = io.StringIO()
+
+    # nodes 
+    for node in nodes:
+      x,y,z = node
+      out.write(f"v {x} {y} {z}\n")
+
+    # normals
+    for normal in normals:
+      x,y,z = normal  
+      out.write(f"vn {x} {y} {z}\n")
+
+    #faces
+    for face in elements:
+      i,j,k = face 
+      out.write(f"f {i}/{i}/{i} {j}/{j}/{j} {k}/{k}/{k}\n")
+    
+    with open(pathlib.Path(obj.name+".obj"), "w") as f:
+      f.write(out.getvalue())
+
+  
 def main():
 
   parser = argparse.ArgumentParser(description=__doc__)
@@ -474,11 +462,11 @@ def main():
   # produce a files only containing surface
   paths = SurfaceExtractor(args.input, args.output).process()
 
-  # print(f"paths::{paths}")
 
 if __name__ == '__main__':
   # Initialize Gmsh
   gmsh.initialize()
+  # gmsh.initialize(argv=["","-bin"])
 
   main()
 
