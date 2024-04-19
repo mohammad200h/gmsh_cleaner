@@ -1,6 +1,6 @@
 <mujoco model="hollow_cylinder_binary">
   <worldbody>
-    <flexcomp name="hollow_cylinder_binary" type="gmsh" dim="3" file="volume.msh">
+    <flexcomp name="hollow_cylinder_binary" type="gmsh" dim="3" file="two_disjoint_composite_objects_out_vol1.msh">
     <edge equality="true"/>
     </flexcomp>
   </worldbody>
