@@ -20,19 +20,23 @@ pip install .
 ```
 
 # Demo
-First let's create a mesh from stl file using GMSH APP.
 
-<video src="https://github.com/mohammad200h/gmsh_cleaner/blob/main/media/cleaning.mp4" controls width="600"></video>
+### Creating a Volume Mesh
 
+First, create a mesh from an STL file using the Gmsh app. Watch the video below for a walkthrough:  
+[![Watch the video](https://img.youtube.com/vi/RAJujxWlcRs/0.jpg)](https://www.youtube.com/watch?v=RAJujxWlcRs)
 
-Now let's clean the file and create separate surface and volume mesh.
+### Cleaning the Mesh File
 
-<video src="https://github.com/mohammad200h/gmsh_cleaner/blob/main/media/creating_volume_mesh.mp4" controls width="600"></video>
+Next, use `gmsh_cleaner` to clean the file and generate separate surface and volume meshes. Watch the video below for a walkthrough: 
+[![Watch the video](https://img.youtube.com/vi/qrxtl8gGAgI/0.jpg)](https://www.youtube.com/watch?v=qrxtl8gGAgI)
 
 
 
 # Relevant Mujoco github issues:
 
 [#2342](https://github.com/google-deepmind/mujoco/issues/2342#issuecomment-2587066593): Unjustifid Error Thrown "XML Error: Error: Node tags must be sequential"
+
 [#1543](https://github.com/google-deepmind/mujoco/issues/1543#event-14086492635) [#1492](https://github.com/google-deepmind/mujoco/issues/1492#event-14086474326): Unable to Build an XML file that reads in a binary MSH file?
+
 [#1724](https://github.com/google-deepmind/mujoco/issues/1724): Using gmsh files in MuJoCo - XML Error: Error: Node tags must be sequential
