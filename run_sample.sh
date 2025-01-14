@@ -1,1 +1,0 @@
-python3 gmsh_cleaner.py -v 2.2 -b 1 -i ./two_disjoint_composite_objects.msh -o ./two_disjoint_composite_objects_out.msh
