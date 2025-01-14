@@ -22,12 +22,12 @@ pip install .
 # Demo
 First let's create a mesh from stl file using GMSH APP.
 
-<video src="media/creating_volume_mesh.mp4" controls width="600"></video>
+<video src="https://github.com/mohammad200h/gmsh_cleaner/edit/main/media/creating_volume_mesh.mp4" controls width="600"></video>
 
 
 Now let's clean the file and create separate surface and volume mesh.
 
-<video src="media/cleaning.mp4" controls width="600"></video>
+<video src="https://github.com/mohammad200h/gmsh_cleaner/edit/main//media/cleaning.mp4" controls width="600"></video>
 
 
 
