@@ -1,1 +1,0 @@
-python3 converter.py -i ./hollow_cylinder_nogroups.msh -o ./hollow_cylinder_nogroups_out.msh
