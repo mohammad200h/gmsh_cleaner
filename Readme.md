@@ -19,6 +19,8 @@ pip install .
  gmsh_cleaner -v <GMSH version: 4.1 | 2.2> -b <boolean:  binary | ASCII  >  -i <input file> -o <outfile>
 ```
 
+
+
 # Demo
 
 ### Creating a Volume Mesh
@@ -28,8 +30,10 @@ First, create a mesh from an STL file using the Gmsh app. Watch the video below 
 
 ### Cleaning the Mesh File
 
-Next, use `gmsh_cleaner` to clean the file and generate separate surface and volume meshes. Watch the video below for a walkthrough: 
+Next, use `gmsh_cleaner` to clean the file and generate separate surface and volume meshes. Watch the video below for a walkthrough:  
 [![Watch the video](https://img.youtube.com/vi/qrxtl8gGAgI/0.jpg)](https://www.youtube.com/watch?v=qrxtl8gGAgI)
+
+
 
 
 
